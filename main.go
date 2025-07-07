@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -14,17 +13,7 @@ import (
 	"time"
 
 	"github.com/getlantern/systray"
-	"golang.org/x/sys/windows/registry"
 )
-
-//go:embed icons/green.ico
-var iconRunning []byte
-
-//go:embed icons/gray.ico
-var iconStopped []byte
-
-//go:embed icons/yellow.ico
-var iconNoNet []byte
 
 type Config struct {
 	IntervalSec int  `json:"interval_sec"`
@@ -237,25 +226,6 @@ func isNetworkAvailable() bool {
 	}
 	conn.Close()
 	return true
-}
-
-func enableAutoStart() {
-	exePath, _ := os.Executable()
-	k, _, _ := registry.CreateKey(registry.CURRENT_USER,
-		`Software\Microsoft\Windows\CurrentVersion\Run`,
-		registry.SET_VALUE)
-	k.SetStringValue("HotspotKeeper", exePath)
-	k.Close()
-}
-
-func disableAutoStart() {
-	k, err := registry.OpenKey(registry.CURRENT_USER,
-		`Software\Microsoft\Windows\CurrentVersion\Run`,
-		registry.SET_VALUE)
-	if err == nil {
-		k.DeleteValue("HotspotKeeper")
-		k.Close()
-	}
 }
 
 func loadConfig() {
