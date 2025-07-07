@@ -59,15 +59,14 @@ func main() {
 
 func onReady() {
 	systray.SetTooltip("防止iPhone热点断开")
+	systray.SetTitle("Hotspot Keeper")
 
-	// 初始化图标
+	// 初始图标
 	if config.IsRunning {
 		systray.SetIcon(iconRunning)
 	} else {
 		systray.SetIcon(iconStopped)
 	}
-
-	systray.SetTitle("Hotspot Keeper")
 
 	statusItem = systray.AddMenuItem("状态：已停止", "")
 
@@ -84,7 +83,7 @@ func onReady() {
 	startItem = startMenu.AddSubMenuItemCheckbox("启动", "", config.IsRunning)
 	stopItem = startMenu.AddSubMenuItemCheckbox("停止", "", !config.IsRunning)
 
-	// 开机启动
+	// 开机启动控制
 	autoStartMenu = systray.AddMenuItem("开机启动", "")
 	autoStartOnItem = autoStartMenu.AddSubMenuItemCheckbox("启用", "", config.AutoStart)
 	autoStartOffItem = autoStartMenu.AddSubMenuItemCheckbox("禁用", "", !config.AutoStart)
@@ -97,8 +96,15 @@ func onReady() {
 	systray.AddSeparator()
 	quitItem := systray.AddMenuItem("退出", "退出程序")
 
+	// 自动启动探测（保留上次状态）
 	if config.IsRunning {
+		startItem.Check()
+		stopItem.Uncheck()
 		startProbe()
+	} else {
+		startItem.Uncheck()
+		stopItem.Check()
+		systray.SetIcon(iconStopped)
 	}
 
 	go handleMenuEvents(quitItem)
@@ -178,17 +184,20 @@ func startProbe() {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				bytesUsed, err := doRequest()
-				if err != nil {
+				if !isNetworkAvailable() {
 					statusItem.SetTitle("状态：无网络")
 					systray.SetIcon(iconNoNet)
 					continue
 				}
 				statusItem.SetTitle("状态：探测中")
 				systray.SetIcon(iconRunning)
-				config.TotalBytes += bytesUsed
-				statsItem.SetTitle(fmt.Sprintf("流量统计：%dKB", config.TotalBytes/1024))
-				saveConfig()
+
+				bytesUsed, err := doRequest()
+				if err == nil {
+					config.TotalBytes += bytesUsed
+					statsItem.SetTitle(fmt.Sprintf("流量统计：%dKB", config.TotalBytes/1024))
+					saveConfig()
+				}
 			}
 		}
 	}()
@@ -212,9 +221,6 @@ func stopProbe() {
 
 func doRequest() (int, error) {
 	client := http.Client{Timeout: 5 * time.Second}
-	if !isNetworkAvailable() {
-		return 0, fmt.Errorf("no network")
-	}
 	req, _ := http.NewRequest("HEAD", "https://www.gstatic.com/generate_204", nil)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -257,7 +263,7 @@ func loadConfig() {
 	configPath = filepath.Join(usr.HomeDir, ".hotspot_keeper.json")
 	data, err := ioutil.ReadFile(configPath)
 	if err != nil {
-		config = Config{IntervalSec: 5, AutoStart: false, IsRunning: false}
+		config = Config{IntervalSec: 5, AutoStart: false, IsRunning: true}
 		saveConfig()
 		return
 	}
