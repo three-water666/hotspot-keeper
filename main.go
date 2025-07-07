@@ -21,22 +21,26 @@ type Config struct {
 	IntervalSec int  `json:"interval_sec"`
 	TotalBytes  int  `json:"total_bytes"`
 	AutoStart   bool `json:"auto_start"`
+	IsRunning   bool `json:"is_running"`
 }
 
 var (
-	config        Config
-	configPath    string
-	statusItem    *systray.MenuItem
-	statsItem     *systray.MenuItem
-	startStopItem *systray.MenuItem
-	autoStartItem *systray.MenuItem
-	interval5     *systray.MenuItem
-	interval10    *systray.MenuItem
-	interval30    *systray.MenuItem
-	ctx           context.Context
-	cancelFunc    context.CancelFunc
-	isRunning     bool
-	ticker        *time.Ticker
+	config           Config
+	configPath       string
+	statusItem       *systray.MenuItem
+	statsItem        *systray.MenuItem
+	interval5        *systray.MenuItem
+	interval10       *systray.MenuItem
+	interval30       *systray.MenuItem
+	startMenu        *systray.MenuItem
+	startItem        *systray.MenuItem
+	stopItem         *systray.MenuItem
+	autoStartMenu    *systray.MenuItem
+	autoStartOnItem  *systray.MenuItem
+	autoStartOffItem *systray.MenuItem
+	ticker           *time.Ticker
+	ctx              context.Context
+	cancelFunc       context.CancelFunc
 )
 
 func main() {
@@ -48,7 +52,7 @@ func onReady() {
 	systray.SetTitle("Hotspot Keeper")
 	systray.SetTooltip("防止iPhone热点断开")
 
-	// 状态显示
+	// 状态项
 	statusItem = systray.AddMenuItem("状态：已停止", "")
 
 	// 探测间隔菜单
@@ -58,23 +62,30 @@ func onReady() {
 	interval10 = intervalMenu.AddSubMenuItemCheckbox("10秒", "", config.IntervalSec == 10)
 	interval30 = intervalMenu.AddSubMenuItemCheckbox("30秒", "", config.IntervalSec == 30)
 
-	// 启动/停止
+	// 启动/停止菜单
 	systray.AddSeparator()
-	startStopItem = systray.AddMenuItem("启动探测", "开始网络保持探测")
+	startMenu = systray.AddMenuItem("探测控制", "")
+	startItem = startMenu.AddSubMenuItemCheckbox("启动", "", config.IsRunning)
+	stopItem = startMenu.AddSubMenuItemCheckbox("停止", "", !config.IsRunning)
 
-	// 开机启动
-	autoStartItem = systray.AddMenuItemCheckbox("开机启动", "", config.AutoStart)
-	autoStartItem.Check()
+	// 开机启动菜单
+	autoStartMenu = systray.AddMenuItem("开机启动", "")
+	autoStartOnItem = autoStartMenu.AddSubMenuItemCheckbox("启用", "", config.AutoStart)
+	autoStartOffItem = autoStartMenu.AddSubMenuItemCheckbox("禁用", "", !config.AutoStart)
 
 	// 流量统计
 	systray.AddSeparator()
 	statsItem = systray.AddMenuItem(fmt.Sprintf("流量统计：%dKB", config.TotalBytes/1024), "")
 
-	// 退出按钮
+	// 退出
 	systray.AddSeparator()
 	quitItem := systray.AddMenuItem("退出", "退出程序")
 
-	// 事件处理
+	// 启动探测（如配置中已启用）
+	if config.IsRunning {
+		startProbe()
+	}
+
 	go handleMenuEvents(quitItem)
 }
 
@@ -87,14 +98,29 @@ func handleMenuEvents(quitItem *systray.MenuItem) {
 			setInterval(10)
 		case <-interval30.ClickedCh:
 			setInterval(30)
-		case <-startStopItem.ClickedCh:
-			if isRunning {
-				stopProbe()
-			} else {
-				startProbe()
-			}
-		case <-autoStartItem.ClickedCh:
-			toggleAutoStart()
+
+		case <-startItem.ClickedCh:
+			startItem.Check()
+			stopItem.Uncheck()
+			startProbe()
+		case <-stopItem.ClickedCh:
+			startItem.Uncheck()
+			stopItem.Check()
+			stopProbe()
+
+		case <-autoStartOnItem.ClickedCh:
+			autoStartOnItem.Check()
+			autoStartOffItem.Uncheck()
+			enableAutoStart()
+			config.AutoStart = true
+			saveConfig()
+		case <-autoStartOffItem.ClickedCh:
+			autoStartOnItem.Uncheck()
+			autoStartOffItem.Check()
+			disableAutoStart()
+			config.AutoStart = false
+			saveConfig()
+
 		case <-quitItem.ClickedCh:
 			stopProbe()
 			systray.Quit()
@@ -105,35 +131,36 @@ func handleMenuEvents(quitItem *systray.MenuItem) {
 
 func setInterval(sec int) {
 	config.IntervalSec = sec
+	saveConfig()
+
 	interval5.Check()
 	interval10.Uncheck()
 	interval30.Uncheck()
+
 	if sec == 10 {
 		interval5.Uncheck()
 		interval10.Check()
-	}
-	if sec == 30 {
+	} else if sec == 30 {
 		interval5.Uncheck()
-		interval10.Uncheck()
 		interval30.Check()
 	}
-	saveConfig()
-	if isRunning {
+
+	if config.IsRunning {
 		stopProbe()
 		startProbe()
 	}
 }
 
 func startProbe() {
-	if isRunning {
+	if ctx != nil {
 		return
 	}
-	isRunning = true
 	ctx, cancelFunc = context.WithCancel(context.Background())
 	ticker = time.NewTicker(time.Duration(config.IntervalSec) * time.Second)
 
-	startStopItem.SetTitle("停止探测")
 	statusItem.SetTitle("状态：探测中")
+	config.IsRunning = true
+	saveConfig()
 
 	go func() {
 		for {
@@ -146,9 +173,9 @@ func startProbe() {
 					statusItem.SetTitle("状态：无网络")
 					continue
 				}
+				statusItem.SetTitle("状态：探测中")
 				config.TotalBytes += bytesUsed
 				statsItem.SetTitle(fmt.Sprintf("流量统计：%dKB", config.TotalBytes/1024))
-				statusItem.SetTitle("状态：探测中")
 				saveConfig()
 			}
 		}
@@ -156,18 +183,18 @@ func startProbe() {
 }
 
 func stopProbe() {
-	if !isRunning {
-		return
-	}
-	isRunning = false
 	if cancelFunc != nil {
 		cancelFunc()
+		ctx = nil
+		cancelFunc = nil
 	}
 	if ticker != nil {
 		ticker.Stop()
+		ticker = nil
 	}
-	startStopItem.SetTitle("启动探测")
 	statusItem.SetTitle("状态：已停止")
+	config.IsRunning = false
+	saveConfig()
 }
 
 func doRequest() (int, error) {
@@ -181,7 +208,7 @@ func doRequest() (int, error) {
 		return 0, err
 	}
 	resp.Body.Close()
-	return 700, nil // 估算 HEAD 请求大小
+	return 700, nil
 }
 
 func isNetworkAvailable() bool {
@@ -191,18 +218,6 @@ func isNetworkAvailable() bool {
 	}
 	conn.Close()
 	return true
-}
-
-func toggleAutoStart() {
-	config.AutoStart = !config.AutoStart
-	if config.AutoStart {
-		enableAutoStart()
-		autoStartItem.Check()
-	} else {
-		disableAutoStart()
-		autoStartItem.Uncheck()
-	}
-	saveConfig()
 }
 
 func enableAutoStart() {
@@ -224,16 +239,12 @@ func disableAutoStart() {
 	}
 }
 
-func onExit() {
-	stopProbe()
-}
-
 func loadConfig() {
 	usr, _ := user.Current()
 	configPath = filepath.Join(usr.HomeDir, ".hotspot_keeper.json")
 	data, err := ioutil.ReadFile(configPath)
 	if err != nil {
-		config = Config{IntervalSec: 5, AutoStart: false}
+		config = Config{IntervalSec: 5, AutoStart: false, IsRunning: false}
 		saveConfig()
 		return
 	}
@@ -243,4 +254,8 @@ func loadConfig() {
 func saveConfig() {
 	data, _ := json.MarshalIndent(config, "", "  ")
 	ioutil.WriteFile(configPath, data, 0644)
+}
+
+func onExit() {
+	stopProbe()
 }
