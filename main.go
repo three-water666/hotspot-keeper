@@ -140,12 +140,16 @@ func setInterval(sec int) {
 	config.IntervalSec = sec
 	saveConfig()
 
-	interval5.Check()
+	interval5.Uncheck()
 	interval10.Uncheck()
 	interval30.Uncheck()
-	if sec == 10 {
+
+	switch sec {
+	case 5:
+		interval5.Check()
+	case 10:
 		interval10.Check()
-	} else if sec == 30 {
+	case 30:
 		interval30.Check()
 	}
 
