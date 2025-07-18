@@ -115,7 +115,7 @@ func handleMenuEvents(quitItem *systray.MenuItem) {
 		case <-stopItem.ClickedCh:
 			startItem.Uncheck()
 			stopItem.Check()
-			stopProbe()
+			stopProbe(true)
 		case <-autoStartOnItem.ClickedCh:
 			autoStartOnItem.Check()
 			autoStartOffItem.Uncheck()
@@ -129,7 +129,7 @@ func handleMenuEvents(quitItem *systray.MenuItem) {
 			config.AutoStart = false
 			saveConfig()
 		case <-quitItem.ClickedCh:
-			stopProbe()
+			stopProbe(false)
 			systray.Quit()
 			os.Exit(0)
 		}
@@ -154,7 +154,7 @@ func setInterval(sec int) {
 	}
 
 	if config.IsRunning {
-		stopProbe()
+		stopProbe(false)
 		startProbe()
 	}
 }
@@ -196,7 +196,8 @@ func startProbe() {
 	}()
 }
 
-func stopProbe() {
+// save: 是否保存config和IsRunning状态
+func stopProbe(save bool) {
 	if cancelFunc != nil {
 		cancelFunc()
 		ctx = nil
@@ -208,8 +209,10 @@ func stopProbe() {
 	}
 	statusItem.SetTitle("状态：已停止")
 	systray.SetIcon(iconStopped)
-	config.IsRunning = false
-	saveConfig()
+	if save {
+		config.IsRunning = false
+		saveConfig()
+	}
 }
 
 func doRequest() (int, error) {
@@ -250,5 +253,5 @@ func saveConfig() {
 }
 
 func onExit() {
-	stopProbe()
+	stopProbe(false)
 }
