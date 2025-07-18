@@ -79,7 +79,7 @@ func onReady() {
 
 	// 流量统计
 	systray.AddSeparator()
-	statsItem = systray.AddMenuItem(fmt.Sprintf("流量统计：%dKB", config.TotalBytes/1024), "")
+	statsItem = systray.AddMenuItem(fmt.Sprintf("流量统计：%.2fMB", float64(config.TotalBytes)/1024.0/1024.0), "")
 
 	// 退出
 	systray.AddSeparator()
@@ -188,7 +188,7 @@ func startProbe() {
 				bytesUsed, err := doRequest()
 				if err == nil {
 					config.TotalBytes += bytesUsed
-					statsItem.SetTitle(fmt.Sprintf("流量统计：%dKB", config.TotalBytes/1024))
+					statsItem.SetTitle(fmt.Sprintf("流量统计：%.2fMB", float64(config.TotalBytes)/1024.0/1024.0))
 					saveConfig()
 				}
 			}
